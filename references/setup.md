@@ -45,7 +45,7 @@ scripts/xhs doctor
 `prepare` installs the bundled Chinese clipboard helper when missing and grants the image permission
 where supported. `doctor` must return:
 
-- exactly one device
+- exactly one USB device matching `expected_device_model`; unrelated network ADB devices are ignored
 - `model_supported: true`
 - `xiaohongshu_installed: true`
 - `input_helper_installed: true`

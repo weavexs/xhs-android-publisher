@@ -1,0 +1,15 @@
+{
+  "enabled": false,
+  "recovery_enabled": true,
+  "recovery_provider": "codex",
+  "allow_cloud": false,
+  "base_url": "http://127.0.0.1:8000/v1",
+  "model": "ByteDance-Seed/UI-TARS-1.5-7B",
+  "api_key_env": "UI_TARS_API_KEY",
+  "timeout_seconds": 60,
+  "max_tokens": 450,
+  "recovery_max_tokens": 260,
+  "recovery_max_steps": 3,
+  "experience_root": "~/.local/share/codex/xhs-android-publisher/ui_tars_experience",
+  "temperature": 0
+}

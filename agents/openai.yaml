@@ -1,4 +1,4 @@
 interface:
   display_name: "小红书安卓发布"
-  short_description: "通过 ADB 安全校验并控制安卓设备发布小红书笔记"
-  default_prompt: "使用 $xhs-android-publisher 校验素材并通过安卓设备发布一篇小红书笔记。"
+  short_description: "通过 ADB 与受控 UI-TARS 接管安全发布小红书笔记"
+  default_prompt: "使用 $xhs-android-publisher 校验素材、处理可恢复的界面漂移，并通过安卓设备安全发布小红书笔记。"

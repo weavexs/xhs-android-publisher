@@ -10,6 +10,10 @@
 - 校验账号、标题、正文、图片数量和公开可见。
 - 使用文章专属临时相册和逐张SHA-256核对，保持封面第一与图片顺序。
 - 保存草稿、修改已有草稿、设置小红书原生定时发布。
+- 常规 ADB 流程找不到控件时，由受控 UI-TARS 恢复层接管页面导航。
+- 恢复轨迹连续成功两次后晋级为可复用经验，首次复用失败立即隔离。
+- 默认把未知恢复问题写入 Codex 接管队列，也可接入 UI-TARS 视觉模型。
+- 精确选择 USB OnePlus，忽略其他网络 ADB 设备。
 - CAPTCHA、登录异常、违规提示或结果不明确时停止，不盲目重试。
 - 使用macOS钥匙串保存设备PIN，不写入项目配置。
 
@@ -19,6 +23,7 @@
 
 ```bash
 cp assets/xhs_config.example.json ~/.config/codex/xhs-android-publisher.json
+cp assets/xhs_ui_tars.example.json ~/.config/codex/xhs-ui-tars.json
 scripts/xhs prepare
 scripts/xhs doctor
 ```
@@ -30,10 +35,14 @@ scripts/xhs article-check 001
 scripts/xhs article-draft 001
 scripts/xhs article-schedule 001
 scripts/safe_publish.py 001
+scripts/xhs observe --no-model
+scripts/xhs recovery-status
 scripts/xhs end
 ```
 
 公开发布必须有明确授权；上传或保存草稿不等于发布成功。
+UI-TARS 只恢复普通页面导航和缺失控件，永远不能代替发布、定时、删除、
+登录、验证码、隐私范围或发布后验收门禁。云端模型必须显式允许截图上传。
 
 ## 仓库边界
 
@@ -41,7 +50,6 @@ scripts/xhs end
 
 ## 版本与发布
 
-每次功能迭代必须更新 `VERSION` 和 `CHANGELOG.md`。提交并推送后创建对应
 每次迭代先更新 `VERSION` 与 `CHANGELOG.md`，提交后运行
-`scripts/release.sh`。脚本会推送代码、创建 `vX.Y.Z` 标签，并把本次
+`scripts/release.sh`。脚本会推送代码、创建 `vVERSION` 标签，并把本次
 更新内容发布为 GitHub Release。

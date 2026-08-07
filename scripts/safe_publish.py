@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from xhs_operator import OperatorError, XhsOperator
+from ui_tars_recovery import UiTarsRecoveryAgent
 
 
 DEFAULT_CONFIG = Path(
@@ -38,6 +39,13 @@ def main() -> int:
     }
     operator: XhsOperator | None = None
     try:
+        pending = UiTarsRecoveryAgent().pending_handoffs()
+        if pending:
+            payload["result"] = "skipped"
+            raise OperatorError(
+                "存在尚未处理的 UI-TARS/Codex 故障接管项，"
+                f"禁止启动新的发布流程：{pending[0]}"
+            )
         operator = XhsOperator(args.config)
         doctor = operator.doctor()
         payload["doctor"] = doctor

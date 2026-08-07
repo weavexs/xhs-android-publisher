@@ -3,6 +3,7 @@
   "device_pin_keychain_service": "codex-xhs-device-pin",
   "device_pin_keychain_account": "xhs-operator",
   "expected_device_model": "ONEPLUS A6003",
+  "expected_device_transport": "usb",
   "expected_screen_size": "1080x2280",
   "screen_timeout_ms": 60000,
   "active_screen_timeout_ms": 1800000,

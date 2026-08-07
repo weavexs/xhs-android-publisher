@@ -62,6 +62,67 @@ def find_adb() -> str:
     raise OperatorError("找不到 adb，请先安装 Android Platform Tools。")
 
 
+def parse_adb_devices(output: str) -> list[dict[str, object]]:
+    devices: list[dict[str, object]] = []
+    for line in output.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        properties: dict[str, str] = {}
+        for field in fields[2:]:
+            if ":" in field:
+                key, value = field.split(":", 1)
+                properties[key] = value
+        serial = fields[0]
+        devices.append(
+            {
+                "serial": serial,
+                "state": fields[1],
+                "model": properties.get("model", "").replace("_", " "),
+                "transport": (
+                    "usb"
+                    if "usb" in properties and ":" not in serial
+                    else "network"
+                    if ":" in serial
+                    else "unknown"
+                ),
+            }
+        )
+    return devices
+
+
+def select_target_device(
+    devices: list[dict[str, object]],
+    *,
+    expected_model: str,
+    expected_transport: str,
+) -> tuple[str, list[str]]:
+    eligible = [
+        device
+        for device in devices
+        if device.get("state") == "device"
+        and str(device.get("model", "")).casefold() == expected_model.casefold()
+        and str(device.get("transport", "")) == expected_transport
+    ]
+    if len(eligible) != 1:
+        found = [
+            f"{device.get('model') or '未知型号'}"
+            f"({device.get('transport')},{device.get('state')})"
+            for device in devices
+        ]
+        raise OperatorError(
+            f"需要唯一的 {expected_transport} {expected_model}，"
+            f"当前匹配 {len(eligible)} 台；已发现：{', '.join(found) or '无'}。"
+        )
+    selected = str(eligible[0]["serial"])
+    ignored = [
+        str(device["serial"])
+        for device in devices
+        if str(device.get("serial")) != selected
+    ]
+    return selected, ignored
+
+
 @dataclass
 class UiNode:
     text: str
@@ -101,22 +162,44 @@ class XhsOperator:
         self.config = json.loads(config_path.read_text(encoding="utf-8"))
         self.output_dir = Path(self.config["runtime_output_dir"]).expanduser()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._ui_tars_recovery_attempted: set[tuple[str, str]] = set()
+        self._ui_tars_recovery_records: list[dict] = []
+        self._device_serial: str | None = None
+        self._ignored_devices: list[str] = []
 
     def adb(self, *args: str, check: bool = True) -> str:
+        if self._device_serial is None:
+            self.require_device()
+        return run(
+            [self.adb_path, "-s", self._device_serial, *args],
+            check=check,
+        )
+
+    def adb_raw(self, *args: str, check: bool = True) -> str:
         return run([self.adb_path, *args], check=check)
 
     def shell(self, *args: str, check: bool = True) -> str:
         return self.adb("shell", *args, check=check)
 
     def connected_devices(self) -> list[str]:
-        lines = self.adb("devices").splitlines()[1:]
-        return [line.split()[0] for line in lines if "\tdevice" in line]
+        return [
+            str(device["serial"])
+            for device in parse_adb_devices(self.adb_raw("devices", "-l"))
+            if device.get("state") == "device"
+        ]
 
     def require_device(self) -> str:
-        devices = self.connected_devices()
-        if len(devices) != 1:
-            raise OperatorError(f"需要且只能连接一台已授权设备，当前为 {len(devices)} 台。")
-        return devices[0]
+        if self._device_serial is not None:
+            return self._device_serial
+        devices = parse_adb_devices(self.adb_raw("devices", "-l"))
+        self._device_serial, self._ignored_devices = select_target_device(
+            devices,
+            expected_model=str(self.config["expected_device_model"]),
+            expected_transport=str(
+                self.config.get("expected_device_transport", "usb")
+            ),
+        )
+        return self._device_serial
 
     def current_focus(self) -> str:
         output = self.shell("dumpsys", "window")
@@ -282,10 +365,11 @@ class XhsOperator:
         }
 
     def screenshot(self, name: str = "latest.png") -> Path:
+        serial = self.require_device()
         target = self.output_dir / name
         with target.open("wb") as file:
             result = subprocess.run(
-                [self.adb_path, "exec-out", "screencap", "-p"],
+                [self.adb_path, "-s", serial, "exec-out", "screencap", "-p"],
                 stdout=file,
                 stderr=subprocess.PIPE,
             )
@@ -348,6 +432,55 @@ class XhsOperator:
             matches.append(node)
         return matches
 
+    def try_ui_tars_recovery(
+        self,
+        *,
+        failure_kind: str,
+        target: str,
+        error: str,
+    ) -> bool:
+        """Try one guarded recovery per missing target during this process."""
+        attempt_key = (failure_kind, target)
+        if attempt_key in self._ui_tars_recovery_attempted:
+            return False
+        self._ui_tars_recovery_attempted.add(attempt_key)
+        try:
+            from ui_tars_recovery import UiTarsRecoveryAgent
+
+            result = UiTarsRecoveryAgent().recover(
+                self,
+                failure_kind=failure_kind,
+                target=target,
+                error=error,
+            )
+        except Exception as recovery_error:
+            result = {
+                "attempted": True,
+                "recovered": False,
+                "reason": f"recovery_error:{recovery_error}",
+            }
+        self._ui_tars_recovery_records.append(
+            {
+                "failure_kind": failure_kind,
+                "target": target,
+                **result,
+            }
+        )
+        receipt = self.output_dir / "ui-tars-recovery-latest.json"
+        receipt.write_text(
+            json.dumps(
+                {
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "records": self._ui_tars_recovery_records,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return bool(result.get("recovered"))
+
     def tap_node(
         self,
         *,
@@ -359,7 +492,29 @@ class XhsOperator:
         nodes = self.find_nodes(text=text, resource_id=resource_id, content_desc=content_desc)
         if not nodes:
             criteria = {"text": text, "resource_id": resource_id, "content_desc": content_desc}
-            raise OperatorError(f"找不到控件：{criteria}")
+            error = f"找不到控件：{criteria}"
+            if text is not None:
+                recovered = self.try_ui_tars_recovery(
+                    failure_kind="missing_text",
+                    target=text,
+                    error=error,
+                )
+            elif resource_id is not None:
+                recovered = self.try_ui_tars_recovery(
+                    failure_kind="missing_resource",
+                    target=resource_id,
+                    error=error,
+                )
+            else:
+                recovered = False
+            if recovered:
+                nodes = self.find_nodes(
+                    text=text,
+                    resource_id=resource_id,
+                    content_desc=content_desc,
+                )
+            if not nodes:
+                raise OperatorError(error)
         node = nodes[0]
         x, y = node.center
         self.shell("input", "tap", str(x), str(y))
@@ -373,7 +528,16 @@ class XhsOperator:
             if nodes:
                 return nodes[0]
             time.sleep(0.5)
-        raise OperatorError(f"等待界面“{text}”超时。")
+        error = f"等待界面“{text}”超时。"
+        if self.try_ui_tars_recovery(
+            failure_kind="missing_text",
+            target=text,
+            error=error,
+        ):
+            nodes = self.find_nodes(text=text)
+            if nodes:
+                return nodes[0]
+        raise OperatorError(error)
 
     def wait_for_resource(self, resource_id: str, timeout: float = 8.0) -> UiNode:
         deadline = time.monotonic() + timeout
@@ -382,7 +546,16 @@ class XhsOperator:
             if nodes:
                 return nodes[0]
             time.sleep(0.5)
-        raise OperatorError(f"等待控件“{resource_id}”超时。")
+        error = f"等待控件“{resource_id}”超时。"
+        if self.try_ui_tars_recovery(
+            failure_kind="missing_resource",
+            target=resource_id,
+            error=error,
+        ):
+            nodes = self.find_nodes(resource_id=resource_id)
+            if nodes:
+                return nodes[0]
+        raise OperatorError(error)
 
     def tap_resource(self, resource_id: str, wait: float = 1.0) -> UiNode:
         return self.tap_node(resource_id=resource_id, wait=wait)
@@ -1797,6 +1970,7 @@ class XhsOperator:
                 and model_supported
             ),
             "device": device,
+            "ignored_devices": self._ignored_devices,
             "model": model,
             "expected_device_model": expected_model,
             "model_supported": model_supported,
@@ -1862,12 +2036,57 @@ def main() -> int:
     daily_drafts.add_argument("--date", help="指定备稿日期，格式 YYYY-MM-DD；默认次日")
     snapshot = subparsers.add_parser("snapshot", help="保存当前手机截图")
     snapshot.add_argument("--name", default="latest.png")
+    observe = subparsers.add_parser(
+        "observe",
+        help="UI-TARS 只读观察当前小红书页面；绝不执行模型动作",
+    )
+    observe.add_argument(
+        "--observer-config",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "UI_TARS_CONFIG",
+                Path.home() / ".config" / "codex" / "xhs-ui-tars.json",
+            )
+        ).expanduser(),
+    )
+    observe.add_argument(
+        "--allow-cloud",
+        action="store_true",
+        help="显式允许把当前手机截图发送到非本地模型端点",
+    )
+    observe.add_argument(
+        "--no-model",
+        action="store_true",
+        help="只运行本地截图、UI 树与风险检查，不调用模型",
+    )
+    subparsers.add_parser(
+        "recovery-status",
+        help="查看 UI-TARS 接管、故障记录和经验库状态",
+    )
     locate = subparsers.add_parser("locate", help="按文字查找当前页面控件")
     locate.add_argument("text")
     args = parser.parse_args()
 
     try:
         operator = XhsOperator(args.config)
+        guarded_commands = {
+            "article-sync",
+            "article-fill",
+            "article-draft",
+            "article-publish",
+            "article-schedule",
+            "daily-drafts",
+        }
+        if args.command in guarded_commands:
+            from ui_tars_recovery import UiTarsRecoveryAgent
+
+            pending = UiTarsRecoveryAgent().pending_handoffs()
+            if pending:
+                raise OperatorError(
+                    "存在尚未处理的 UI-TARS/Codex 故障接管项，"
+                    f"原流程保持停止：{pending[0]}"
+                )
         if args.command == "doctor":
             print_json(operator.doctor())
         elif args.command == "begin":
@@ -1921,6 +2140,22 @@ def main() -> int:
             print_json(operator.daily_drafts(args.limit, args.date))
         elif args.command == "snapshot":
             print_json({"screenshot": str(operator.screenshot(args.name))})
+        elif args.command == "observe":
+            from ui_tars_observer import run_observation_session
+
+            result = run_observation_session(
+                operator,
+                config_path=args.observer_config,
+                allow_cloud=args.allow_cloud,
+                invoke_model=not args.no_model,
+                wake=True,
+            )
+            print_json(result)
+            return 0 if result["ok"] else 1
+        elif args.command == "recovery-status":
+            from ui_tars_recovery import UiTarsRecoveryAgent
+
+            print_json(UiTarsRecoveryAgent().status())
         elif args.command == "locate":
             print_json(
                 [

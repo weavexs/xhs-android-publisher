@@ -1,6 +1,6 @@
 ---
 name: xhs-android-publisher
-description: Safely control one USB-debugged Android device through ADB to prepare, validate, save drafts, schedule, or publicly publish Xiaohongshu image posts. Use when Codex needs to send 小红书笔记 from local title/body/image manifests, inspect device readiness, preserve image order, verify the target account and public visibility, or package a repeatable Android publishing flow. Enforce explicit publish authorization, no blind retries, and screen-off cleanup after every outcome.
+description: Safely control one USB-debugged Android device through ADB to prepare, validate, save drafts, schedule, or publicly publish Xiaohongshu image posts, with guarded UI-TARS/Codex takeover for recoverable UI drift and verified experience reuse. Use when Codex needs to send 小红书笔记, inspect device readiness, preserve image order, verify account and visibility, recover missing controls, or package a repeatable Android publishing flow. Enforce explicit publish authorization, no blind retries, and screen-off cleanup.
 ---
 
 # Xiaohongshu Android publisher
@@ -13,6 +13,8 @@ state-changing action. Never infer permission to publish from permission to insp
 - Read [references/setup.md](references/setup.md) before first use on a Mac or Android device.
 - Read [references/article-schema.md](references/article-schema.md) when creating or diagnosing an
   article manifest.
+- Read [references/ui-tars-recovery.md](references/ui-tars-recovery.md) before enabling UI-TARS,
+  handling a pending takeover, or changing recovery policy.
 - Run scripts directly; do not load `scripts/xhs_operator.py` into context unless debugging or
   adapting to a changed Xiaohongshu UI.
 
@@ -21,8 +23,9 @@ state-changing action. Never infer permission to publish from permission to insp
 1. Record the workflow start time before the first check.
 2. Require an explicit user request to publish publicly, or an exact same-day schedule plus an
    independently verified `ready` article. Saving a draft is not publication permission.
-3. Require exactly one authorized ADB device, the configured screen size, Xiaohongshu, the bundled
-   input helper, the expected account, and an unlocked usable app state.
+3. Require exactly one authorized USB ADB device matching the configured model, screen size,
+   Xiaohongshu, input helper, expected account, and an unlocked usable app state. Ignore unrelated
+   network ADB devices; never let them enter the operation or UI-TARS recovery path.
 4. Validate `发布内容.json`, body text, 1–6 ordered PNG files, dimensions, title length, body length,
    and `status: ready`.
 5. Do not publish when the article is already `published`; classify it as a duplicate blocker.
@@ -34,6 +37,9 @@ state-changing action. Never infer permission to publish from permission to insp
    unknown outcome: stop, preserve evidence, keep the article `ready`, and do not retry.
 9. End every success, failure, or skip with screen-off cleanup. Require
    `phone_screen_off: true`; never claim completion otherwise.
+10. Let UI-TARS recover only missing ordinary controls or navigation drift. Never let it execute or
+    authorize publish, schedule, delete, login, CAPTCHA, privacy, account-policy, duplicate, or
+    post-publication acceptance decisions.
 
 ## First-use setup
 
@@ -47,6 +53,29 @@ scripts/xhs doctor
 Do not continue unless `doctor` returns `ok: true`. The current UI coordinate fallback is validated
 only for the configured `ONEPLUS A6003` at `1080x2280`. A different model or screen size is a
 blocker until the operator is adapted and revalidated.
+
+## UI-TARS recovery
+
+Keep deterministic ADB logic primary. On a missing text/resource/control, the operator records an
+incident and tries one guarded recovery for that target:
+
+1. reuse an exact matching approved/candidate experience;
+2. otherwise queue Codex takeover by default, or call a configured UI-TARS vision endpoint;
+3. resume only after the original target is visible and deterministically verified.
+
+Do not poll the takeover queue at a fixed interval. Check it at workflow start and when a failure is
+recorded. A pending takeover blocks new draft, schedule, and publish work.
+
+Run:
+
+```bash
+scripts/xhs observe --no-model
+scripts/xhs recovery-status
+```
+
+New recovery paths remain candidates until two independent successes. Quarantine a path after its
+first failed reuse. Follow [references/ui-tars-recovery.md](references/ui-tars-recovery.md) for the
+action whitelist, cloud screenshot boundary, and experience lifecycle.
 
 ## Draft workflow
 
@@ -102,6 +131,7 @@ Always report:
 - article ID, expected account, title, and output evidence paths
 - complete workflow elapsed time, including retries or rework
 - operator elapsed time when available
+- UI-TARS recovery source, incident/experience path, and pending takeover state when applicable
 - `privacy=公开可见` only when proven
 - `phone_screen_off=true`
 
