@@ -1,0 +1,13 @@
+{
+  "account_name": "填写小红书昵称",
+  "device_pin_keychain_service": "codex-xhs-device-pin",
+  "device_pin_keychain_account": "xhs-operator",
+  "expected_device_model": "ONEPLUS A6003",
+  "expected_screen_size": "1080x2280",
+  "screen_timeout_ms": 60000,
+  "active_screen_timeout_ms": 1800000,
+  "article_root": "/absolute/path/to/articles",
+  "runtime_output_dir": "/absolute/path/to/runtime-records",
+  "required_tag": "",
+  "default_tags": []
+}

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CONFIG=${XHS_CONFIG:-"$HOME/.config/codex/xhs-android-publisher.json"}
+
+if [ ! -f "$CONFIG" ]; then
+  echo "缺少配置：$CONFIG" >&2
+  echo "请复制技能 assets/xhs_config.example.json 后填写本机路径。" >&2
+  exit 2
+fi
+
+exec python3 "$SCRIPT_DIR/xhs_operator.py" --config "$CONFIG" "$@"

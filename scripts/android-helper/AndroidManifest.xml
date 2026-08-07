@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.codex.xhsinput">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
+    <application
+        android:allowBackup="false"
+        android:label="XHS Input Helper"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <receiver
+            android:name=".ClipboardReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.codex.xhsinput.SET_CLIPBOARD" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

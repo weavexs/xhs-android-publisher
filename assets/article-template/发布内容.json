@@ -1,0 +1,16 @@
+{
+  "id": "001",
+  "status": "ready",
+  "content_rules_version": 2,
+  "title": "填写不超过20字的标题",
+  "body_file": "正文.txt",
+  "images": [
+    "output/01-cover.png",
+    "output/02-page.png"
+  ],
+  "expected_image_size": [
+    1125,
+    1500
+  ],
+  "tags": []
+}

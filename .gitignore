@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+.env
+xhs_config.json
+runtime/
+records/
+screenshots/
+articles/
