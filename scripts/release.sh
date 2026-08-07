@@ -12,7 +12,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-if ! grep -q "^## \\[${version}\\]" CHANGELOG.md; then
+if ! grep -Eq "^## (\\[)?${version}(\\])?( |$)" CHANGELOG.md; then
   echo "CHANGELOG.md 中缺少 ${version} 的发布说明。"
   exit 1
 fi
@@ -22,8 +22,8 @@ git tag -a "$tag" -m "Release ${tag}"
 git push origin "$tag"
 
 notes="$(awk -v version="$version" '
-  $0 == "## [" version "]" {capture=1; next}
-  capture && /^## \[/ {exit}
+  $0 ~ "^## (\\[)?" version "(\\])?( |$)" {capture=1; next}
+  capture && /^## / {exit}
   capture {print}
 ' CHANGELOG.md)"
 
