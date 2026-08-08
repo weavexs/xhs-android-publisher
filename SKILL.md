@@ -77,6 +77,9 @@ New recovery paths remain candidates until two independent successes. Quarantine
 first failed reuse. Follow [references/ui-tars-recovery.md](references/ui-tars-recovery.md) for the
 action whitelist, cloud screenshot boundary, and experience lifecycle.
 
+Record every completed deterministic phone workflow as a passive experience. Learning includes all
+interfaces, while restricted operations remain observation-only and cannot execute the final action.
+
 ## Draft workflow
 
 Use this only when the user asks to create or replace a phone draft:

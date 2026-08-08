@@ -32,6 +32,10 @@ The recovery target is navigation restoration, not completion of the business ac
 
 ## Learning and reuse
 
+- Learning covers every phone operation and interface, including restricted screens. This broader
+  observation boundary does not broaden execution authority.
+- Record verified workflows with `scripts/record_phone_experience.py`. Restricted workflows are
+  stored as `observe_locate_prompt_validate_only` and never authorize the final restricted tap.
 - Save every failure as an incident with before-state evidence.
 - Save a successful new recovery as `candidate`.
 - Promote it to `approved` only after two independent deterministic confirmations that the target
