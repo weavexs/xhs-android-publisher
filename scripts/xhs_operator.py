@@ -832,40 +832,15 @@ class XhsOperator:
         album_name = f"{article_id}-{int(time.time())}"
         remote_dir = f"{remote_root}/{album_name}"
 
-        # Every sync gets a fresh article-only album. Reusing a folder lets
-        # Xiaohongshu keep a stale album cache and previously caused a foreign
-        # article image to be selected from “全部”. Remove only prior disposable
-        # session folders for this exact article id.
-        old_dirs = self.shell(
-            "find",
-            remote_root,
-            "-maxdepth",
-            "1",
-            "-mindepth",
-            "1",
-            "-type",
-            "d",
-            "-name",
-            f"{article_id}-*",
-            check=False,
-        ).splitlines()
-        for old_dir in old_dirs:
-            if not old_dir.startswith(f"{remote_root}/{article_id}-"):
-                continue
-            old_paths = self.shell(
-                "find", old_dir, "-maxdepth", "1", "-type", "f", check=False
-            ).splitlines()
-            for old_path in old_paths:
-                if old_path.startswith(f"{old_dir}/"):
-                    self.shell("rm", "-f", old_path)
-                    self.scan_media(old_path)
-            self.shell("rm", "-r", old_dir)
+        # Do not delete and rescan an old album before indexing the new one.
+        # Android's asynchronous deletion scan can race the first new page.
+        # The unique album and file names keep old sessions unselectable.
         self.shell("mkdir", "-p", remote_dir)
 
         remote_images = []
         image_hashes = []
         for index, local_path in enumerate(article.image_paths, 1):
-            remote_path = f"{remote_dir}/{index:02d}.png"
+            remote_path = f"{remote_dir}/{album_name}-{index:02d}.png"
             self.adb("push", str(local_path), remote_path)
             local_hash = hashlib.sha256(local_path.read_bytes()).hexdigest()
             remote_hash = self.shell("sha256sum", remote_path).split()[0]
@@ -877,7 +852,8 @@ class XhsOperator:
             image_hashes.append(
                 {
                     "index": index,
-                    "name": f"{index:02d}.png",
+                    "name": f"{album_name}-{index:02d}.png",
+                    "source_name": f"{index:02d}.png",
                     "sha256": local_hash,
                 }
             )
@@ -900,12 +876,19 @@ class XhsOperator:
 
         expected_order = [Path(path).name for path in remote_images]
         media_rows: list[dict] = []
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 20
+        rescan_attempted = False
         while time.monotonic() < deadline:
             media_rows = self.media_store_order(remote_dir)
             actual_order = [row["name"] for row in media_rows]
             if actual_order == expected_order:
                 break
+            # Repair a transient MediaStore row with date_modified=NULL by
+            # rescanning the same verified files once after a short delay.
+            if not rescan_attempted and time.monotonic() + 3 < deadline:
+                time.sleep(3.0)
+                self.scan_media_many(remote_images)
+                rescan_attempted = True
             time.sleep(0.5)
         else:
             raise OperatorError(
@@ -1001,8 +984,9 @@ class XhsOperator:
                     f"账号主页标题“{title}”出现 {len(cards)} 次，已停止验收。"
                 )
             if attempt < max_scrolls:
-                # Pull the profile grid toward its newest posts at the top.
-                self.shell("input", "swipe", "540", "700", "540", "1800", "450")
+                # Pinned posts occupy the first viewport; move down to find the
+                # newest unpinned card.
+                self.shell("input", "swipe", "540", "1800", "540", "700", "450")
                 time.sleep(1.0)
         raise OperatorError("发布后账号主页未出现对应文章卡片。")
 
@@ -1077,7 +1061,7 @@ class XhsOperator:
                 time.sleep(0.8)
         raise OperatorError("草稿箱入口连续三次未打开。")
 
-    def open_current_draft_editor(self) -> str:
+    def open_current_draft_editor(self, article_id: str) -> str:
         """Open the current local draft across old and current XHS navigation."""
         deadline = time.monotonic() + 25
         legacy_badges = []
@@ -1106,7 +1090,36 @@ class XhsOperator:
             raise OperatorError("发布入口右上角不是草稿箱，已停止。")
         x, y = draft_entry.center
         self.shell("input", "tap", str(x), str(y))
-        self.wait_for_resource("com.xingin.xhs:id/bottomGoNext", timeout=8)
+        title = self.article(article_id).manifest["title"]
+        if self.find_nodes(text="本地草稿"):
+            title_nodes = self.find_nodes(text=title)
+            if len(title_nodes) != 1:
+                raise OperatorError(
+                    f"新版草稿箱要求唯一标题草稿，当前找到 {len(title_nodes)} 个。"
+                )
+            title_node = title_nodes[0]
+            cards = [
+                node
+                for node in self.find_nodes(resource_id="com.xingin.xhs:id/card_view")
+                if node.bounds[0] <= title_node.center[0] <= node.bounds[2]
+                and node.bounds[1] <= title_node.center[1] <= node.bounds[3]
+            ]
+            if len(cards) != 1:
+                raise OperatorError(
+                    f"无法唯一定位标题草稿卡片，当前找到 {len(cards)} 个。"
+                )
+            x, y = cards[0].center
+            self.shell("input", "tap", str(x), str(y))
+            time.sleep(1.2)
+        route_deadline = time.monotonic() + 8
+        while time.monotonic() < route_deadline:
+            if self.find_nodes(resource_id="com.xingin.xhs:id/editTitle"):
+                return "current_editor"
+            if self.find_nodes(resource_id="com.xingin.xhs:id/bottomGoNext"):
+                break
+            time.sleep(0.5)
+        else:
+            raise OperatorError("打开新版草稿后未出现编辑页或图片预览页。")
         self.tap_resource("com.xingin.xhs:id/bottomGoNext", wait=2.0)
         self.wait_for_resource("com.xingin.xhs:id/capa_light_edit_next", timeout=8)
         self.tap_resource("com.xingin.xhs:id/capa_light_edit_next", wait=2.0)
@@ -1132,6 +1145,9 @@ class XhsOperator:
 
     def find_album_name(self, album_name: str, max_scrolls: int = 8) -> UiNode:
         """Find an article-only album in Xiaohongshu's folder list."""
+        for _ in range(3):
+            self.shell("input", "swipe", "540", "700", "540", "2000", "450")
+            time.sleep(0.4)
         for attempt in range(max_scrolls + 1):
             nodes = self.find_nodes(
                 text=album_name,
@@ -1776,7 +1792,7 @@ class XhsOperator:
                     f"当前账号名为“{profile['account_name']}”，应为"
                     f"“{self.config['account_name']}”。"
                 )
-            draft_mode = self.open_current_draft_editor()
+            draft_mode = self.open_current_draft_editor(article_id)
             if draft_mode == "legacy_list":
                 title_node = self.find_draft_title(
                     self.article(article_id).manifest["title"]
@@ -1833,8 +1849,21 @@ class XhsOperator:
             post_card = self.find_profile_post_card(article.manifest["title"])
             x, y = post_card.center
             self.shell("input", "tap", str(x), str(y))
-            time.sleep(2.0)
-            detail_nodes = self.dump_ui()
+            detail_nodes = []
+            detail_deadline = time.monotonic() + 10
+            while time.monotonic() < detail_deadline:
+                time.sleep(1.0)
+                detail_nodes = self.dump_ui()
+                loading_title = next((n.text for n in detail_nodes if n.resource_id == "com.xingin.xhs:id/noteTitleTV"), "")
+                loading_body = next((n.text for n in detail_nodes if n.resource_id == "com.xingin.xhs:id/imageNoteTextView"), "")
+                loading_privacy = next((n.text for n in detail_nodes if n.resource_id == "com.xingin.xhs:id/notePrivacyTv"), "")
+                if (
+                    loading_title == article.manifest["title"]
+                    and self.normalize_editor_text(loading_body)
+                    == self.normalize_editor_text(article.body)
+                    and loading_privacy == "公开可见"
+                ):
+                    break
             detail_title = next(
                 (
                     node.text
