@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 from .client import Client
+from .device import observe
 
 def main():
     parser=argparse.ArgumentParser(description='XHS outbound agent (connection-only alpha)')
@@ -18,8 +19,15 @@ def main():
     client=Client(cfg['server'],cfg['token'],cfg.get('allow_loopback',False))
     while True:
         # Deliberately do not claim work: no side effects before adapter acceptance.
-        client.heartbeat({'agent_version':'0.7.0-alpha.1','busy':False,'error_code':'hardware_adapter_not_enabled'})
-        print('Heartbeat accepted; hardware execution remains disabled.',flush=True)
+        state=observe(cfg)
+        try:
+            client.heartbeat(state)
+            print(json.dumps({'heartbeat':'accepted','device_connected':state['device_connected'],
+                              'screen_off':state['screen_off'],'mode':'connection_only'}),flush=True)
+        except Exception:
+            # Never log tokens, URLs or raw HTTP exception bodies.
+            print('Heartbeat unavailable; hardware execution remains disabled.',flush=True)
+            if args.once: raise SystemExit(1)
         if args.once: break
         time.sleep(30)
 

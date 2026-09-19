@@ -1,8 +1,8 @@
 # Outbound agent alpha
 
-The existing local publisher is unchanged. The new `python3 -m agent` entry point validates server connectivity only and **never claims jobs or operates a phone** until the deterministic adapter is implemented and accepted.
+The existing local publisher is unchanged. The new `python3 -m agent` entry point validates server connectivity and reads USB model/resolution/power status only. It **never claims jobs, wakes the phone, navigates UI or publishes** until the deterministic adapter is implemented and accepted. Every 30 seconds it reports observed USB state; disconnect or probe failure is not an online phone. Account verification timestamp is historical, never a claim of current account identity.
 
-Create a private local JSON file (mode 0600) containing `server` (HTTPS origin), `token` (one-time device pairing credential). For local development only, `allow_loopback: true` permits HTTP on localhost. Do not store device PINs or API generation keys in this file. Run:
+First verify the logged-in nickname on the phone and finish with verified screen-off. Use `python3 -m agent.pair --help` to bind that verified account: it accepts a private admin password file, probes exactly one USB phone and writes a private local config (0600). Do not pass PINs or model keys. Existing configs and existing account-device bindings are not overwritten. For local development only, `--allow-loopback` permits HTTP on localhost. Run:
 
 ```sh
 python3 -m agent --config /absolute/path/to/private-agent.json --once
