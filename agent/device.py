@@ -6,7 +6,7 @@ import re
 def observe(cfg, run=subprocess.run):
     state = {'device_connected': False, 'screen_off': None,
              'account_matches': None, 'mode': 'connection_only',
-             'agent_version': '0.7.0-alpha.2', 'busy': False,
+             'agent_version': '0.8.0-alpha.1', 'busy': False,
              'account_verified_at': cfg.get('account_verified_at'),
              'error_code': 'usb_not_connected'}
     def adb(*args):
